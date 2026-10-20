@@ -41,3 +41,35 @@ the changes.
 The macro leaves Excel open. Failed Excel rows are skipped and reported in the
 VBA Immediate window; successfully imported parts and assembly changes are
 saved.
+
+## SOLIDWORKS PDM drawing publish task
+
+`PdmDrawingPublish.ps1` is a PowerShell worker for a PDM task that runs once for
+each selected drawing. It accepts the drawing's local vault-view path, its main
+revision, and the vault name:
+
+```powershell
+PdmDrawingPublish.ps1 -DrawingPath <local-vault-path-to-SLDDRW> `
+  -Revision <PDM-main-revision> -VaultName <vault-name>
+```
+
+The PDM task must pass its per-file path and main-revision values as these
+arguments. Configure the task to run once for each selected file and supply the
+PDM variable that contains the main revision. The worker performs these exports
+in separate SOLIDWORKS sessions, closing SOLIDWORKS between exports:
+
+- One all-sheets PDF named `<drawing>-<revision>.pdf` is created in the drawing's
+  vault folder and added to the vault or checked in as a new version. A copy is
+  also written to `\\srvvcad\AutoCAD\Zeichnungen\`.
+- Each drawing sheet is exported as
+  `<drawing>-<revision>-<sheet>.dxf` to that network folder.
+- The referenced model is exported as `<drawing>-<revision>.step` to that
+  network folder. If the drawing references more than one distinct model or
+  configuration, the task reports an error rather than choosing one silently.
+
+Run the task on a Windows task host with SOLIDWORKS and the SOLIDWORKS PDM
+client/API installed. The task account needs read access to the drawing and
+referenced model, permission to add/update the PDF in the vault, and write
+access to the network destination. The PDM task configuration must provide
+the vault name and the exact main revision for each input drawing. Errors are
+reported to the task host's PowerShell error output.
