@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 using EPDM.Interop.epdm;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -11,6 +12,7 @@ namespace SWMakro.PdmTask
 {
     internal sealed class DrawingExportService
     {
+        private const string OutputDirectory = @"\\srvvcad\AutoCAD\Zeichnungen";
         private readonly ISldWorks _solidWorks;
         private readonly IEdmVault5 _vault;
 
@@ -39,52 +41,40 @@ namespace SWMakro.PdmTask
                 throw new InvalidOperationException("The drawing is checked out. Check it in before running the export task.");
             }
 
-            var stagingDirectory = Path.Combine(Path.GetTempPath(), "SWMakroPdmTask", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(stagingDirectory);
-
+            Directory.CreateDirectory(OutputDirectory);
+            var drawing = OpenDocument(drawingPath, swDocumentTypes_e.swDocDRAWING);
             try
             {
-                var drawing = OpenDocument(drawingPath, swDocumentTypes_e.swDocDRAWING);
+                var modelReference = FindUniqueModelReference(drawing);
+                var modelPath = modelReference.Path;
+                if (!File.Exists(modelPath))
+                {
+                    throw new FileNotFoundException("The model referenced by the drawing is not available on the task host.", modelPath);
+                }
+
+                var modelType = Path.GetExtension(modelPath).Equals(".sldasm", StringComparison.OrdinalIgnoreCase)
+                    ? swDocumentTypes_e.swDocASSEMBLY
+                    : swDocumentTypes_e.swDocPART;
+                var model = OpenDocument(modelPath, modelType, modelReference.Configuration);
                 try
                 {
-                    var modelReference = FindUniqueModelReference(drawing);
-                    var modelPath = modelReference.Path;
-                    if (!File.Exists(modelPath))
-                    {
-                        throw new FileNotFoundException("The model referenced by the drawing is not available on the task host.", modelPath);
-                    }
-
-                    var modelType = Path.GetExtension(modelPath).Equals(".sldasm", StringComparison.OrdinalIgnoreCase)
-                        ? swDocumentTypes_e.swDocASSEMBLY
-                        : swDocumentTypes_e.swDocPART;
-                    var model = OpenDocument(modelPath, modelType, modelReference.Configuration);
-                    try
-                    {
-                        ExportPdf(drawing, Path.Combine(stagingDirectory, Path.GetFileNameWithoutExtension(drawingPath) + ".pdf"));
-                        ExportSheetDxfs(drawing, drawingPath, stagingDirectory);
-                        ExportStep(model, modelReference.Configuration, Path.Combine(stagingDirectory, Path.GetFileNameWithoutExtension(drawingPath) + ".step"));
-                    }
-                    finally
-                    {
-                        CloseDocument(model);
-                    }
+                    var pdfPath = Path.Combine(OutputDirectory, Path.GetFileNameWithoutExtension(drawingPath) + ".pdf");
+                    var vaultPdfPath = Path.Combine(Path.GetDirectoryName(drawingPath), Path.GetFileName(pdfPath));
+                    ConfirmOutputPath("PDF", pdfPath, "Zusätzliche PDM-Kopie: " + vaultPdfPath);
+                    ExportPdf(drawing, pdfPath);
+                    PublishFile(pdfPath, vaultPdfPath);
+                    ExportSheetDxfs(drawing, drawingPath, OutputDirectory);
+                    ExportStep(model, modelReference.Configuration,
+                        Path.Combine(OutputDirectory, Path.GetFileNameWithoutExtension(drawingPath) + ".step"));
                 }
                 finally
                 {
-                    CloseDocument(drawing);
-                }
-
-                foreach (var stagedPath in Directory.GetFiles(stagingDirectory))
-                {
-                    PublishFile(stagedPath, Path.Combine(Path.GetDirectoryName(drawingPath), Path.GetFileName(stagedPath)));
+                    CloseDocument(model);
                 }
             }
             finally
             {
-                if (Directory.Exists(stagingDirectory))
-                {
-                    Directory.Delete(stagingDirectory, true);
-                }
+                CloseDocument(drawing);
             }
         }
 
@@ -198,6 +188,7 @@ namespace SWMakro.PdmTask
                 var outputPath = Path.Combine(
                     stagingDirectory,
                     Path.GetFileNameWithoutExtension(drawingPath) + "_" + safeSheetName + ".dxf");
+                ConfirmOutputPath("DXF", outputPath);
                 SaveAs(drawing, outputPath, exportData);
             }
         }
@@ -209,7 +200,27 @@ namespace SWMakro.PdmTask
                 throw new InvalidOperationException("Could not activate STEP configuration '" + configuration + "'.");
             }
 
+            ConfirmOutputPath("STEP", outputPath);
             SaveAs(model, outputPath, null);
+        }
+
+        private static void ConfirmOutputPath(string fileType, string outputPath, string additionalInformation = null)
+        {
+            var message = "Ausgabepfad für " + fileType + ":\r\n" + outputPath;
+            if (!string.IsNullOrWhiteSpace(additionalInformation))
+            {
+                message += "\r\n\r\n" + additionalInformation;
+            }
+
+            message += "\r\n\r\nMit OK wird die Datei gespeichert. Abbrechen beendet den Task für diese Zeichnung.";
+            if (MessageBox.Show(
+                    message,
+                    "SWMakro – Ausgabepfad bestätigen",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Information) != DialogResult.OK)
+            {
+                throw new OperationCanceledException("The user cancelled the " + fileType + " export.");
+            }
         }
 
         private static void SaveAs(IModelDoc2 document, string outputPath, object exportData)

@@ -8,7 +8,9 @@
 - One DXF per sheet, named `<drawing>_<sheet>.dxf`.
 - One STEP file named `<drawing>.step`, exported from the single referenced part or assembly and the configuration used by its drawing views.
 
-Outputs are placed beside the source drawing in the vault. New outputs are added to PDM; existing outputs are checked out, replaced, and checked in. A source drawing checked out by a user, an output checked out by another user, unavailable references, missing configurations, and drawings referencing multiple distinct model/configuration pairs are reported as task failures rather than silently exporting an arbitrary model.
+PDF, per-sheet DXF, and STEP files are written to `\\srvvcad\AutoCAD\Zeichnungen`. The PDF is additionally added to or updated in PDM beside the source drawing; DXF and STEP files are not added to PDM. Before each export, an OK/Cancel message box displays the destination path; the PDF prompt also displays the PDM copy location. Cancel aborts processing for that drawing. Because these prompts require an interactive desktop, run the task host in an interactive user session while path confirmation is enabled.
+
+Existing network-share outputs are overwritten by SOLIDWORKS. An existing PDM PDF is checked out, replaced, and checked in. A source drawing checked out by a user, an output PDF checked out by another user, unavailable references, missing configurations, and drawings referencing multiple distinct model/configuration pairs are reported as task failures rather than silently exporting an arbitrary model.
 
 ### Build and install
 
@@ -16,4 +18,4 @@ Build `SWMakro.PdmTask/SWMakro.PdmTask.csproj` on a Windows machine with .NET Fr
 
 ### Validation scenarios
 
-Test a drawing with multiple sheets, a drawing whose views all use the same model/configuration, both part and assembly references, and multiple selected drawings. Also verify handling of checked-out source/output files, missing or unavailable model files, missing configurations, and drawings with multiple distinct referenced model/configuration pairs. Confirm that all generated files appear in the vault and that the PDF has every sheet while each DXF has only its corresponding sheet.
+Test a drawing with multiple sheets, a drawing whose views all use the same model/configuration, both part and assembly references, and multiple selected drawings. Confirm each pre-export message displays the correct network path, that PDF and STEP outputs are written to the share, that each DXF contains only its corresponding sheet, and that only the PDF is present in PDM beside the drawing. Also verify handling of checked-out source/PDM PDF files, missing or unavailable model files, missing configurations, and drawings with multiple distinct referenced model/configuration pairs.
